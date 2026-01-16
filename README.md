@@ -1,8 +1,31 @@
-# Games-Own-Created-
-Mini Shooter - Single or Two Player
-A fast-paced, retro-style space shooter game built with HTML5, CSS3, and vanilla JavaScript. Choose between single-player survival mode or competitive two-player battles in this compact, responsive arcade experience.
+🎮 Mini Shooter — Single or Two Player
+A fast-paced, retro-style space shooter game built with HTML5 Canvas, CSS3, and vanilla JavaScript.
+Choose between single-player survival mode or competitive two-player battles in this compact, responsive arcade experience.
 
-🎮 Game Modes
+📋 Table of Contents
+Game Modes
+
+Controls
+
+Features
+
+How to Run
+
+Compatibility
+
+Technical Details
+
+Scoring System
+
+Future Enhancements
+
+Development
+
+License
+
+Credits
+
+🎯 Game Modes
 Single Player
 Survive against endless waves of enemies
 
@@ -53,7 +76,7 @@ Central button for shooting
 
 Tap anywhere on screen for quick shooting (alternative)
 
-🎯 Game Features
+✨ Features
 Visual Design
 Neon cyberpunk aesthetic with cyan/red color scheme
 
@@ -141,18 +164,7 @@ Sound effects from Mixkit
 
 All assets loaded via CDN
 
-🎨 Code Structure
-javascript
-// Core components:
-- Game loop (requestAnimationFrame)
-- Player objects (Blue/Red)
-- Bullet system
-- Enemy AI (single player)
-- Collision detection
-- Particle system
-- State management
-- Input handlers (keyboard/touch)
-📊 Scoring System
+🏆 Scoring System
 Single Player
 Small enemy: 10 points
 
@@ -165,7 +177,7 @@ Hit opponent: 20 points
 
 Win game: 100 points bonus
 
-🔧 Future Enhancements
+🔮 Future Enhancements
 Potential features for future versions:
 
 Power-up system
