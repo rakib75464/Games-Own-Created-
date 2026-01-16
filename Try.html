@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Mini Shooter — Single or Two Player</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(circle at center,#050d1c,#000814);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial;
+    color:#e6f7ff;
+  }
+
+  #game{
+    width:480px;max-width:96vw;aspect-ratio:9/16;
+    background:#021322;border:4px solid rgba(0,255,255,0.12);
+    box-shadow:0 10px 40px rgba(0,0,0,0.6), 0 0 28px rgba(0,255,255,0.06);
+    border-radius:12px;position:relative;overflow:hidden;
+  }
+
+  canvas{width:100%;height:100%;display:block}
+
+  .hud{
+    position:absolute;left:10px;top:10px;font-size:14px;
+    background:rgba(0,0,0,0.28);padding:6px 8px;border-radius:6px;
+    backdrop-filter:blur(4px);text-shadow:0 0 6px rgba(0,255,255,0.15);
+  }
+
+  .controls{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
+    display:flex;gap:10px;align-items:center}
+  .btn{user-select:none;width:64px;height:48px;border-radius:8px;
+    background:rgba(255,255,255,0.06);display:flex;align-items:center;
+    justify-content:center;color:#e6f7ff;font-weight:600;font-size:14px;
+    touch-action:manipulation;box-shadow:0 0 8px rgba(0,255,255,0.12)}
+
+  .center-message{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+  .center-message .card{pointer-events:auto;background:rgba(0,0,0,0.6);padding:14px 18px;border-radius:8px;text-align:center;backdrop-filter:blur(3px);box-shadow:0 0 18px rgba(0,255,255,0.12)}
+  .small{font-size:12px;opacity:0.92;margin-top:8px}
+</style>
+</head>
+<body>
+  <div id="game">
+    <canvas id="c"></canvas>
+
+    <div class="hud" id="hud"></div>
+
+    <div class="controls" id="controls" style="display:none;">
+      <div class="btn" id="leftBtn">◀</div>
+      <div class="btn" id="shootBtn">●</div>
+      <div class="btn" id="rightBtn">▶</div>
+    </div>
+
+    <div class="center-message" id="centerMsg">
+      <div class="card" id="startCard">
+        <h2>Mini Shooter</h2>
+        <div class="small" id="instructions"></div>
+        <div style="margin-top:10px;">
+          <button id="singleBtn" class="btn">Single Player</button>
+          <button id="twoBtn" class="btn">Two Players</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  const W = 360, H = 640;
+  canvas.width = W; canvas.height = H;
+
+  const hud = document.getElementById('hud');
+  const centerMsg = document.getElementById('centerMsg');
+  const startCard = document.getElementById('startCard');
+  const instructionsEl = document.getElementById('instructions');
+  const singleBtn = document.getElementById('singleBtn');
+  const twoBtn = document.getElementById('twoBtn');
+  const controls = document.getElementById('controls');
+  const leftBtn = document.getElementById('leftBtn');
+  const rightBtn = document.getElementById('rightBtn');
+  const shootBtn = document.getElementById('shootBtn');
+
+  // Background music
+  const bgMusic = new Audio('https://cdn.pixabay.com/download/audio/2022/02/23/audio_eb1c37f8c3.mp3?filename=futuristic-space-ambience-9060.mp3');
+  bgMusic.loop = true;
+  bgMusic.volume = 0.25;
+
+  // Sounds
+  const sndShoot = new Audio('https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3');
+  const sndExplosion = new Audio('https://assets.mixkit.co/active_storage/sfx/2742/2742-preview.mp3');
+  const sndHit = new Audio('https://assets.mixkit.co/active_storage/sfx/2841/2841-preview.mp3');
+  const sndGameOver = new Audio('https://assets.mixkit.co/active_storage/sfx/2333/2333-preview.mp3');
+
+  // Game state
+  let running = false;
+  let keys = {};
+  let touchState = { left:false, right:false, shoot:false };
+  let mode = null; // "single" or "two"
+
+  // Player objects
+  const playerBlue = { x: W/2 - 17, y: H - 60, w: 34, h: 20, speed: 240, cooldown: 0, lives: 3 };
+  const playerRed = { x: W/2 - 17, y: 40, w: 34, h: 20, speed: 240, cooldown: 0, lives: 3 };
+
+  let bullets = [];
+  let enemies = [];
+  let particles = [];
+  let score = 0;
+  let enemyTimer = 0;
+  let spawnInterval = 1.0;
+
+  // Helpers
+  const rand = (a,b) => Math.random()*(b-a)+a;
+  function rectColl(a,b){ return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+  function roundRect(ctx,x,y,w,h,r,fill){
+    if(!r) r = 4;
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+    if(fill) ctx.fill();
+    else ctx.stroke();
+  }
+
+  // Game reset
+  function resetGame(){
+    bullets = [];
+    enemies = [];
+    particles = [];
+    enemyTimer = 0;
+    spawnInterval = 1.0;
+    score = 0;
+
+    playerBlue.x = W/2 - playerBlue.w/2;
+    playerBlue.lives = 3;
+    playerBlue.cooldown = 0;
+
+    playerRed.x = W/2 - playerRed.w/2;
+    playerRed.lives = 3;
+    playerRed.cooldown = 0;
+
+    updateHUD();
+  }
+
+  // Update HUD based on mode
+  function updateHUD(){
+    if(mode === 'two'){
+      hud.innerHTML = `Player Blue Lives: <span id="playerBlueLives">${playerBlue.lives}</span> &nbsp;|&nbsp; Player Red Lives: <span id="playerRedLives">${playerRed.lives}</span> &nbsp;|&nbsp; Player Blue Score: <span id="score">${score}</span>`;
+    } else {
+      hud.innerHTML = `Lives: <span id="playerBlueLives">${playerBlue.lives}</span> &nbsp;|&nbsp; Score: <span id="score">${score}</span>`;
+    }
+  }
+
+  function createExplosion(x,y,color){
+    for(let i=0;i<18;i++){
+      particles.push({
+        x, y,
+        vx: rand(-220,220),
+        vy: rand(-220,220),
+        life: rand(0.4,0.9),
+        color
+      });
+    }
+  }
+
+  // Spawn enemy (only single player mode)
+  function spawnEnemy(){
+    const w = Math.floor(rand(22,48));
+    const h = Math.floor(rand(14,26));
+    const x = rand(8, W - 8 - w);
+    const vy = rand(45, 110) + Math.min(40, score/6);
+    const life = Math.floor(rand(1,3));
+    enemies.push({ x, y: -h-10, w, h, vy, health: life, score: life*10 });
+  }
+
+  // Main loop
+  let last = performance.now()/1000;
+  function frame(nowRaw){
+    const now = nowRaw/1000;
+    const dt = Math.min(0.05, now - last);
+    last = now;
+    if(running){
+      update(dt);
+      render();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function update(dt){
+    // Player Blue input: ArrowLeft, ArrowRight, Space or touch buttons
+    let moveBlue = 0;
+    if(keys['arrowleft']) moveBlue -= 1;
+    if(keys['arrowright']) moveBlue += 1;
+    if(touchState.left) moveBlue -= 1;
+    if(touchState.right) moveBlue += 1;
+    playerBlue.x += moveBlue * playerBlue.speed * dt;
+    playerBlue.x = Math.max(6, Math.min(playerBlue.x, W - 6 - playerBlue.w));
+    playerBlue.cooldown -= dt;
+    if((keys[' '] || keys['space']) && playerBlue.cooldown <= 0 || touchState.shoot){
+      shoot(playerBlue, -520);
+      playerBlue.cooldown = 0.22;
+      touchState.shoot = false; // reset touch shooting after firing once
+    }
+
+    if(mode === 'two'){
+      // Player Red input: A, D, W
+      let moveRed = 0;
+      if(keys['a']) moveRed -= 1;
+      if(keys['d']) moveRed += 1;
+      playerRed.x += moveRed * playerRed.speed * dt;
+      playerRed.x = Math.max(6, Math.min(playerRed.x, W - 6 - playerRed.w));
+      playerRed.cooldown -= dt;
+      if(keys['w'] && playerRed.cooldown <= 0){
+        shoot(playerRed, 520);
+        playerRed.cooldown = 0.5;
+      }
+    } else if(mode === 'single'){
+      // Single player: spawn and update enemies
+      enemyTimer += dt;
+      if(enemyTimer > spawnInterval){
+        spawnEnemy();
+        enemyTimer = 0;
+        spawnInterval = Math.max(0.35, 1.0 - Math.min(0.6, score / 220));
+      }
+
+      // Move enemies
+      for(let i = enemies.length - 1; i >= 0; i--){
+        const e = enemies[i];
+        e.y += e.vy * dt;
+
+        // bullets -> enemy
+        for(let j = bullets.length - 1; j >= 0; j--){
+          const b = bullets[j];
+          if(b.owner === 'blue' && rectColl({x:b.x-3,y:b.y-8,w:6,h:12}, e)){
+            bullets.splice(j,1);
+            e.health -= 1;
+            if(e.health <= 0){
+              sndExplosion.cloneNode().play();
+              createExplosion(e.x + e.w/2, e.y + e.h/2, '#ff8b8b');
+              score += e.score;
+              updateHUD();
+              enemies.splice(i,1);
+              break;
+            }
+          }
+        }
+
+        // enemy hits playerBlue
+        if(rectColl(e, playerBlue)){
+          enemies.splice(i,1);
+          hitPlayer(playerBlue);
+          continue;
+        }
+
+        // offscreen enemy penalizes player
+        if(e.y > H + 40){
+          enemies.splice(i,1);
+          hitPlayer(playerBlue);
+        }
+      }
+    }
+
+    // Update bullets
+    for(let i = bullets.length - 1; i >= 0; i--){
+      const b = bullets[i];
+      b.y += b.vy * dt;
+      // Remove offscreen bullets
+      if(b.y < -12 || b.y > H + 12){
+        bullets.splice(i,1);
+        continue;
+      }
+
+      // Bullet collision checks for two-player mode:
+      if(mode === 'two'){
+        if(b.owner === 'blue' && rectColl({x:b.x-3,y:b.y-8,w:6,h:12}, playerRed)){
+          bullets.splice(i,1);
+          playerRed.lives -= 1;
+          sndHit.cloneNode().play();
+          createExplosion(playerRed.x + playerRed.w/2, playerRed.y + playerRed.h/2, '#ff8b8b');
+          updateHUD();
+          if(playerRed.lives <= 0){
+            sndExplosion.cloneNode().play();
+            score += 100;
+            updateHUD();
+            gameOver(true);
+          }
+          continue;
+        }
+        if(b.owner === 'red' && rectColl({x:b.x-3,y:b.y-8,w:6,h:12}, playerBlue)){
+          bullets.splice(i,1);
+          playerBlue.lives -= 1;
+          sndHit.cloneNode().play();
+          createExplosion(playerBlue.x + playerBlue.w/2, playerBlue.y + playerBlue.h/2, '#6ec6ff');
+          updateHUD();
+          if(playerBlue.lives <= 0){
+            sndGameOver.play();
+            gameOver(false);
+          }
+          continue;
+        }
+      }
+    }
+
+    // Update particles
+    for(let i = particles.length - 1; i >= 0; i--){
+      const p = particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt + 40*dt;
+      p.life -= dt;
+      if(p.life <= 0) particles.splice(i,1);
+    }
+  }
+
+  // Player hit handler
+  function hitPlayer(player){
+    player.lives -= 1;
+    updateHUD();
+    sndHit.cloneNode().play();
+
+    if(player.lives <= 0){
+      if(mode === 'single'){
+        sndGameOver.play();
+        gameOver(false);
+      } else {
+        // In two player mode, game ends when one player dies
+        sndGameOver.play();
+        gameOver(player === playerBlue);
+      }
+    }
+  }
+
+  function shoot(playerObj, velocityY){
+    bullets.push({
+      x: playerObj.x + playerObj.w/2,
+      y: playerObj.y + (velocityY < 0 ? -6 : playerObj.h + 6),
+      vy: velocityY,
+      owner: playerObj === playerBlue ? 'blue' : 'red'
+    });
+    try { sndShoot.cloneNode().play(); } catch(e){}
+  }
+
+  function gameOver(blueWon){
+    running = false;
+    centerMsg.style.display = 'flex';
+    controls.style.display = 'none';
+    bgMusic.pause();
+    bgMusic.currentTime = 0;
+
+    let message;
+    if(mode === 'single'){
+      message = 'Game Over';
+    } else {
+      message = blueWon ? 'Player Blue Wins!' : 'Player Red Wins!';
+    }
+
+    startCard.innerHTML = `
+      <h2>${message}</h2>
+      <div class="small">Player Blue Score: ${score}</div>
+      <div style="margin-top:10px;">
+        <button id="tryBtn" class="btn">Try Again</button>
+      </div>
+    `;
+
+    document.getElementById('tryBtn').addEventListener('click', () => {
+      // Restore initial start buttons
+      startCard.innerHTML = `
+        <h2>Mini Shooter</h2>
+        <div class="small" id="instructions"></div>
+        <div style="margin-top:10px;">
+          <button id="singleBtn" class="btn">Single Player</button>
+          <button id="twoBtn" class="btn">Two Players</button>
+        </div>
+      `;
+      centerMsg.style.display = 'flex';
+      const instr = document.getElementById('instructions');
+      instr.innerHTML = 'Use ← → or A / D to move. Press Space to shoot.<br>On mobile: use the buttons below.<br>Two Players: Blue uses Arrows + Space; Red uses A/D + W.';
+      document.getElementById('singleBtn').addEventListener('click', () => startGame('single'));
+      document.getElementById('twoBtn').addEventListener('click', () => startGame('two'));
+    });
+  }
+
+  // Drawing helper for players
+  function drawPlayerShip(x, y, w, h, shadowColor, fillColor){
+    ctx.save();
+    ctx.shadowColor = shadowColor;
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = fillColor;
+    roundRect(ctx, x, y, w, h, 5, true);
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x + w/2, y + (fillColor === '#6ec6ff' ? -10 : h + 10));
+    ctx.lineTo(x + w + 6, y + h/2 - 2);
+    ctx.lineTo(x - 6, y + h/2 - 2);
+    ctx.closePath();
+    ctx.fillStyle = fillColor === '#6ec6ff' ? '#9ff2ff' : '#ff9f9f';
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = '#021322';
+    ctx.fillRect(x + w/2 - 7, y + (fillColor === '#6ec6ff' ? 3 : h - 11), 14, 8);
+
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = fillColor === '#6ec6ff' ? '#ffd966' : '#ff6b6b';
+    ctx.beginPath();
+    ctx.ellipse(x + w/2, y + (fillColor === '#6ec6ff' ? h + 6 : -6), 18, 6, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Rendering
+  let stars = Array.from({length:72}, (_,i) => ({x:rand(0,W), y:rand(0,H), r:rand(0.6,1.8), t:rand(0,Math.PI*2)}));
+  function drawStars(now){
+    for(const s of stars){
+      s.y += 0.45;
+      if(s.y > H) s.y = -2;
+      const a = 0.35 + 0.6 * (0.5 + 0.5 * Math.sin((now/200) + s.t));
+      ctx.globalAlpha = a;
+      ctx.beginPath();
+      ctx.fillStyle = '#bfefff';
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function render(){
+    ctx.fillStyle = '#010716';
+    ctx.fillRect(0,0,W,H);
+    drawStars(performance.now());
+
+    // bullets
+    for(const b of bullets){
+      ctx.save();
+      ctx.fillStyle = (b.owner === 'blue') ? '#6ec6ff' : '#ff8b8b';
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 10;
+      ctx.fillRect(Math.round(b.x-2), Math.round(b.y-8), 4, 12);
+      ctx.restore();
+    }
+
+    // enemies (only single player mode)
+    if(mode === 'single'){
+      for(const e of enemies){
+        ctx.save();
+        ctx.shadowColor = '#ff6b6b';
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = '#ff6b6b';
+        roundRect(ctx, e.x, e.y, e.w, e.h, 4, true);
+        ctx.restore();
+      }
+    }
+
+    // particles
+    for(const p of particles){
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x, p.y, 3, 3);
+      ctx.restore();
+    }
+
+    drawPlayerShip(playerBlue.x, playerBlue.y, playerBlue.w, playerBlue.h, '#7fe8ff', '#6ec6ff');
+    if(mode === 'two'){
+      drawPlayerShip(playerRed.x, playerRed.y, playerRed.w, playerRed.h, '#ff6b6b', '#ff8b8b');
+    }
+  }
+
+  // Input listeners
+  window.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; keys[e.code.toLowerCase()] = true; });
+  window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; keys[e.code.toLowerCase()] = false; });
+
+  leftBtn.addEventListener('pointerdown', () => touchState.left = true);
+  leftBtn.addEventListener('pointerup', () => touchState.left = false);
+  leftBtn.addEventListener('pointercancel', () => touchState.left = false);
+
+  rightBtn.addEventListener('pointerdown', () => touchState.right = true);
+  rightBtn.addEventListener('pointerup', () => touchState.right = false);
+  rightBtn.addEventListener('pointercancel', () => touchState.right = false);
+
+  shootBtn.addEventListener('pointerdown', () => { touchState.shoot = true; });
+  shootBtn.addEventListener('pointerup', () => { touchState.shoot = false; });
+  shootBtn.addEventListener('pointercancel', () => { touchState.shoot = false; });
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if(e.pointerType !== 'mouse'){ touchState.shoot = true; setTimeout(()=> touchState.shoot = false, 120); }
+  });
+
+  // Start game with chosen mode
+  function startGame(selectedMode){
+    mode = selectedMode;
+    resetGame();
+    running = true;
+    centerMsg.style.display = 'none';
+    controls.style.display = 'flex';
+    bgMusic.play();
+
+    // Set instructions for chosen mode
+    if(mode === 'single'){
+      instructionsEl.innerHTML = 'Use ← → to move. Press Space to shoot.<br>On mobile: use buttons below.';
+    } else {
+      instructionsEl.innerHTML = 'Player Blue: ← → + Space<br>Player Red: A/D + W to shoot';
+    }
+
+    last = performance.now()/1000;
+  }
+
+  singleBtn.addEventListener('click', () => startGame('single'));
+  twoBtn.addEventListener('click', () => startGame('two'));
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
