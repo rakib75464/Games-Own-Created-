@@ -1,4 +1,4 @@
-🎮 Mini Shooter — Single or Two Player
+🎮 Mini Shooter - Single or Two Player
 A fast-paced, retro-style space shooter game built with HTML5 Canvas, CSS3, and vanilla JavaScript.
 Choose between single-player survival mode or competitive two-player battles in this compact, responsive arcade experience.
 
